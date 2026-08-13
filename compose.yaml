@@ -1,0 +1,28 @@
+services:
+  backend:
+    build:
+      context: ./backend
+
+    container_name: react-fastapi-backend
+
+    ports:
+      - "8000:8000"
+
+    volumes:
+      - ./backend:/app
+
+  frontend:
+    build:
+      context: ./frontend
+
+    container_name: react-fastapi-frontend
+
+    ports:
+      - "5173:5173"
+
+    volumes:
+      - ./frontend:/app
+      - /app/node_modules
+
+    depends_on:
+      - backend
