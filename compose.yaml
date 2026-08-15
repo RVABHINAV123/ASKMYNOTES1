@@ -11,6 +11,9 @@ services:
     volumes:
       - ./backend:/app
 
+    env_file:
+      - ./backend/.env
+
   frontend:
     build:
       context: ./frontend

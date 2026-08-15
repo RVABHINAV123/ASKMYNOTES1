@@ -1,85 +1,275 @@
 import { useState } from "react";
 import "./App.css";
 
+const API_URL =
+  import.meta.env.VITE_API_URL || "http://localhost:8000";
+
 function App() {
+  const [file, setFile] = useState(null);
+  const [documentInfo, setDocumentInfo] = useState(null);
+
   const [question, setQuestion] = useState("");
   const [answer, setAnswer] = useState("");
-  const [loading, setLoading] = useState(false);
+  const [category, setCategory] = useState("");
+
+  const [sources, setSources] = useState([]);
+
+  const [uploading, setUploading] = useState(false);
+  const [asking, setAsking] = useState(false);
+
   const [error, setError] = useState("");
 
-  const askQuestion = async () => {
-    const cleanedQuestion = question.trim();
-
-    if (!cleanedQuestion) {
-      setError("Please enter a question.");
-      setAnswer("");
+  const uploadPdf = async () => {
+    if (!file) {
+      setError("Please select a PDF first.");
       return;
     }
 
-    setLoading(true);
+    setUploading(true);
     setError("");
     setAnswer("");
+    setCategory("");
+    setSources([]);
 
     try {
-      const response = await fetch("http://localhost:8000/ask", {
-        method: "POST",
+      const formData = new FormData();
+      formData.append("file", file);
 
-        headers: {
-          "Content-Type": "application/json",
-        },
-
-        body: JSON.stringify({
-          question: cleanedQuestion,
-        }),
-      });
-
-      if (!response.ok) {
-        throw new Error(`Backend returned status ${response.status}`);
-      }
+      const response = await fetch(
+        `${API_URL}/upload`,
+        {
+          method: "POST",
+          body: formData,
+        }
+      );
 
       const data = await response.json();
 
-      setAnswer(data.answer);
+      if (!response.ok) {
+        throw new Error(
+          data.detail || "Failed to upload PDF."
+        );
+      }
+
+      setDocumentInfo(data);
     } catch (err) {
       console.error(err);
 
       setError(
-        "Unable to connect to the backend. Check whether the FastAPI container is running."
+        err.message ||
+          "Unable to upload the PDF."
       );
     } finally {
-      setLoading(false);
+      setUploading(false);
+    }
+  };
+
+  const askQuestion = async () => {
+    const cleanedQuestion = question.trim();
+
+    if (!documentInfo) {
+      setError("Please upload a PDF first.");
+      return;
+    }
+
+    if (!cleanedQuestion) {
+      setError("Please enter a question.");
+      return;
+    }
+
+    setAsking(true);
+    setError("");
+    setAnswer("");
+    setCategory("");
+    setSources([]);
+
+    try {
+      const response = await fetch(
+        `${API_URL}/ask`,
+        {
+          method: "POST",
+
+          headers: {
+            "Content-Type": "application/json",
+          },
+
+          body: JSON.stringify({
+            question: cleanedQuestion,
+          }),
+        }
+      );
+
+      const data = await response.json();
+
+      if (!response.ok) {
+        throw new Error(
+          data.detail || "Failed to get answer."
+        );
+      }
+
+      setAnswer(data.answer);
+      setCategory(data.category);
+      setSources(data.sources || []);
+    } catch (err) {
+      console.error(err);
+
+      setError(
+        err.message ||
+          "Unable to get an answer from the backend."
+      );
+    } finally {
+      setAsking(false);
     }
   };
 
   return (
     <main className="page">
       <section className="card">
-        <h1>Ask My Notes</h1>
 
-        <p>Enter a question and send it to the FastAPI backend.</p>
+        <div className="header">
+          <h1>AskMyNotes</h1>
 
-        <label htmlFor="question">Your question</label>
+          <p>
+            Chat with your PDF notes using
+            AI-powered retrieval.
+          </p>
+        </div>
 
-        <textarea
-          id="question"
-          value={question}
-          onChange={(event) => setQuestion(event.target.value)}
-          placeholder="For example: What is Docker?"
-          rows="5"
-        />
+        {/* PDF UPLOAD */}
 
-        <button onClick={askQuestion} disabled={loading}>
-          {loading ? "Sending..." : "Ask Question"}
-        </button>
+        <div className="section">
+          <label htmlFor="pdf">
+            Upload your notes (PDF)
+          </label>
 
-        {error && <div className="error">{error}</div>}
+          <div className="upload-row">
+            <input
+              id="pdf"
+              type="file"
+              accept=".pdf,application/pdf"
+              onChange={(event) => {
+                setFile(
+                  event.target.files?.[0] || null
+                );
+
+                setDocumentInfo(null);
+                setError("");
+              }}
+            />
+
+            <button
+              className="upload-button"
+              onClick={uploadPdf}
+              disabled={uploading || !file}
+            >
+              {uploading
+                ? "Processing..."
+                : "Upload PDF"}
+            </button>
+          </div>
+
+          {file && (
+            <div className="file-name">
+              {file.name}
+            </div>
+          )}
+
+          {documentInfo && (
+            <div className="success">
+              <strong>
+                {documentInfo.filename}
+              </strong>
+
+              <span>
+                {documentInfo.pages} pages ·{" "}
+                {documentInfo.chunks} chunks
+              </span>
+            </div>
+          )}
+        </div>
+
+        {/* QUESTION */}
+
+        <div className="section">
+          <label htmlFor="question">
+            Your question
+          </label>
+
+          <textarea
+            id="question"
+            value={question}
+            onChange={(event) =>
+              setQuestion(event.target.value)
+            }
+            placeholder="For example: What is Docker?"
+            rows={5}
+          />
+
+          <button
+            className="ask-button"
+            onClick={askQuestion}
+            disabled={asking || !documentInfo}
+          >
+            {asking
+              ? "Thinking..."
+              : "Ask Question"}
+          </button>
+        </div>
+
+        {/* ERROR */}
+
+        {error && (
+          <div className="error">
+            {error}
+          </div>
+        )}
+
+        {/* ANSWER */}
 
         {answer && (
           <div className="answer">
-            <h2>Backend response</h2>
+            <div className="answer-header">
+              <h2>Answer</h2>
+
+              {category && (
+                <span className="category">
+                  {category}
+                </span>
+              )}
+            </div>
+
             <p>{answer}</p>
           </div>
         )}
+
+        {/* SOURCES */}
+
+        {sources.length > 0 && (
+          <div className="sources">
+            <h2>Retrieved sections</h2>
+
+            {sources.map((source, index) => (
+              <div
+                className="source"
+                key={source.index}
+              >
+                <div className="source-header">
+                  <strong>
+                    Source {index + 1}
+                  </strong>
+
+                  <span>
+                    Score:{" "}
+                    {source.score.toFixed(3)}
+                  </span>
+                </div>
+
+                <p>{source.text}</p>
+              </div>
+            ))}
+          </div>
+        )}
+
       </section>
     </main>
   );
