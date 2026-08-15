@@ -2,7 +2,7 @@ import tempfile
 import os
 from typing import Optional
 from dotenv import load_dotenv
-
+from fastapi.concurrency import run_in_threadpool
 load_dotenv()
 import httpx
 import numpy as np
@@ -364,7 +364,7 @@ async def upload_pdf(file: UploadFile = File(...)):
         with open(temp_path, "wb") as output:
             output.write(contents)
 
-        process_pdf(temp_path)
+        await run_in_threadpool(process_pdf, temp_path)
 
         document_name = file.filename
 
