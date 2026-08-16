@@ -1,6 +1,7 @@
 import tempfile
 import os
 from typing import Optional
+
 from dotenv import load_dotenv
 from fastapi.concurrency import run_in_threadpool
 load_dotenv()
@@ -10,7 +11,7 @@ from fastapi import FastAPI, File, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from pypdf import PdfReader
-from sentence_transformers import SentenceTransformer
+from huggingface_hub import InferenceClient
 
 
 # ============================================================
@@ -47,7 +48,7 @@ app.add_middleware(
         "http://127.0.0.1:5173",
         "http://127.0.0.1:5174",
         "http://127.0.0.1:5175",
-         "https://askmynotes-1.vercel.app",
+        "https://askmynotes-1.vercel.app",
     ],
     allow_credentials=True,
     allow_methods=["*"],
@@ -59,7 +60,12 @@ app.add_middleware(
 # RAG STATE
 # ============================================================
 
-embedding_model: Optional[SentenceTransformer] = None
+hf_client = InferenceClient(
+    provider="hf-inference",
+    api_key=os.environ.get("HF_TOKEN")
+)
+
+EMBEDDING_MODEL = "sentence-transformers/all-MiniLM-L6-v2"
 
 document_chunks: list[str] = []
 document_embeddings: Optional[np.ndarray] = None
@@ -77,20 +83,21 @@ class QuestionRequest(BaseModel):
 
 
 # ============================================================
-# LOAD EMBEDDING MODEL
+# EMBEDDINGS (via HF hosted Inference API)
 # ============================================================
+def get_embeddings(texts: list[str]) -> np.ndarray:
+    if not os.environ.get("HF_TOKEN"):
+        raise RuntimeError("HF_TOKEN is not configured.")
 
-def get_embedding_model():
-    global embedding_model
+    print(f"Generating embeddings for {len(texts)} texts...")
 
-    if embedding_model is None:
-        print("Loading embedding model...")
-        embedding_model = SentenceTransformer(
-            "sentence-transformers/all-MiniLM-L6-v2"
-        )
-        print("Embedding model loaded.")
+    embeddings = hf_client.feature_extraction(
+        texts,
+        model=EMBEDDING_MODEL,
+        normalize=True,
+    )
 
-    return embedding_model
+    return np.asarray(embeddings, dtype=np.float32)
 
 
 # ============================================================
@@ -156,15 +163,7 @@ def process_pdf(file_path: str):
 
     print(f"Number of chunks: {len(chunks)}")
 
-    model = get_embedding_model()
-
-    embeddings = model.encode(
-        chunks,
-        normalize_embeddings=True,
-        convert_to_numpy=True,
-        show_progress_bar=False,
-    ).astype(np.float32)
-
+    embeddings = get_embeddings(chunks)
     document_chunks = chunks
     document_embeddings = embeddings
 
@@ -176,18 +175,11 @@ def process_pdf(file_path: str):
 # ============================================================
 # VECTOR SEARCH
 # ============================================================
-
 def search_document(question: str, k: int = TOP_K):
     if not document_chunks or document_embeddings is None:
         raise ValueError("No PDF has been uploaded yet.")
 
-    model = get_embedding_model()
-
-    question_vector = model.encode(
-        [question],
-        normalize_embeddings=True,
-        convert_to_numpy=True,
-    )[0]
+    question_vector = get_embeddings([question])[0]
 
     scores = document_embeddings @ question_vector
 
